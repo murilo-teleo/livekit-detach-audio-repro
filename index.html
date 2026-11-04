@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>livekit detach audio repro</title>
+<script src="/livekit-client.umd.js"></script>
+<!-- Like <RoomAudioRenderer>, which renders its <audio> elements into a hidden div:
+     https://github.com/livekit/components-js/blob/9cfeb0c492669401242ebcd7828a7dc832b1ae59/packages/react/src/components/RoomAudioRenderer.tsx#L46-L54 -->
+<div id="audio-renderer" style="display: none"></div>
+<script>
+	const { Room, Track } = LivekitClient;
+
+	window.join = async ({ url, token, autoSubscribe }) => {
+		window.room = new Room();
+		await room.connect(url, token, { autoSubscribe });
+	};
+
+	// Publishes a steady sine tone as the microphone, so no real microphone is needed.
+	window.publishTone = async ({ frequency, name }) => {
+		const context = new AudioContext();
+		await context.resume();
+		const oscillator = new OscillatorNode(context, { frequency });
+		const destination = context.createMediaStreamDestination();
+		oscillator.connect(new GainNode(context, { gain: 0.3 })).connect(destination);
+		oscillator.start();
+		const [mediaStreamTrack] = destination.stream.getAudioTracks();
+		await room.localParticipant.publishTrack(mediaStreamTrack, {
+			name,
+			source: Track.Source.Microphone,
+		});
+	};
+
+	const remoteAudioTrack = (identity) =>
+		room.remoteParticipants.get(identity)?.getTrackPublication(Track.Source.Microphone)?.audioTrack;
+
+	window.hasAudioTrack = (identity) => remoteAudioTrack(identity) !== undefined;
+
+	const elements = new Map();
+
+	// The same calls as components-react's <AudioTrack> on mount: React renders the <audio>
+	// element, then the effect in useMediaTrackBySourceOrName calls track.attach(element).
+	// https://github.com/livekit/components-js/blob/9cfeb0c492669401242ebcd7828a7dc832b1ae59/packages/react/src/components/participant/AudioTrack.tsx#L87
+	// https://github.com/livekit/components-js/blob/9cfeb0c492669401242ebcd7828a7dc832b1ae59/packages/react/src/hooks/useMediaTrackBySourceOrName.ts#L52-L70
+	window.render = (identity) => {
+		const element = document.createElement('audio');
+		document.getElementById('audio-renderer').append(element);
+		remoteAudioTrack(identity).attach(element);
+		elements.set(identity, element);
+	};
+
+	// The same calls as components-react's <AudioTrack> on unmount: React removes the <audio>
+	// element from the DOM, then the cleanup of that effect calls track.detach(element).
+	// The track stays subscribed and its publisher keeps sending.
+	// clearSrcObjectFirst is what the proposed detachTrack fix does before removeTrack.
+	window.stopRendering = (identity, { clearSrcObjectFirst = false } = {}) => {
+		const element = elements.get(identity);
+		element.remove();
+		if (clearSrcObjectFirst) {
+			element.srcObject = null;
+		}
+		remoteAudioTrack(identity).detach(element);
+		elements.delete(identity);
+	};
+
+	// The receiver's inbound-rtp stats. Chrome measures totalAudioEnergy after the receiver's
+	// output gain, which follows the <audio> elements playing the track, so energy that keeps
+	// growing after stopRendering means the track is still being played out.
+	window.receiverStats = async (identity) => {
+		const report = await remoteAudioTrack(identity).receiver.getStats();
+		for (const stats of report.values()) {
+			if (stats.type === 'inbound-rtp') {
+				return {
+					packetsReceived: stats.packetsReceived,
+					totalAudioEnergy: stats.totalAudioEnergy,
+					totalSamplesDuration: stats.totalSamplesDuration,
+				};
+			}
+		}
+	};
+</script>

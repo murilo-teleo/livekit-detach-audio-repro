@@ -1,0 +1,13 @@
+{
+	"name": "livekit-detach-audio-repro",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"repro": "node repro.mjs"
+	},
+	"dependencies": {
+		"livekit-client": "2.23.0",
+		"livekit-server-sdk": "2.19.1",
+		"playwright": "1.62.1"
+	}
+}
