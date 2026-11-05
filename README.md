@@ -8,7 +8,8 @@ audio element in the page is still playing. `detachTrack` removes the track from
 `MediaStream` and only then sets `srcObject` to `null`. When an element stops, Chrome silences only
 the tracks still in its stream, so the removed track keeps its playout volume and plays whatever
 packets arrive. With no other remote audio playing, Chrome stops playout altogether, which is why the
-bug is easy to miss with a single remote track. Firefox and WebKit on iPadOS aren't affected.
+bug is easy to miss with a single remote track. Chrome is affected on Linux and macOS. Firefox and
+WebKit (Safari on macOS, every browser on iPadOS) aren't.
 
 The script joins three participants to a room, each in its own browser context:
 
@@ -111,10 +112,12 @@ node repro.mjs --listen
 | Browser | livekit's detach() | srcObject cleared first |
 | -- | -- | -- |
 | Chromium 151 (Linux) | keeps playing | stops |
+| Chrome (macOS) | keeps playing | stops |
 | Firefox 159 (Linux) | stops | stops |
+| Safari (macOS) | stops | stops |
 | Safari, Chrome and Brave on iPadOS 26 (all WebKit) | stops | stops |
 
-Firefox was checked by ear and by recording its audio output, the iPad by ear.
+Firefox was checked by ear and by recording its audio output, the Mac and the iPad by ear.
 
 ## Options
 
