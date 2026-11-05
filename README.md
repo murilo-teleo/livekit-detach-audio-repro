@@ -8,7 +8,7 @@ audio element in the page is still playing. `detachTrack` removes the track from
 `MediaStream` and only then sets `srcObject` to `null`. When an element stops, Chrome silences only
 the tracks still in its stream, so the removed track keeps its playout volume and plays whatever
 packets arrive. With no other remote audio playing, Chrome stops playout altogether, which is why the
-bug is easy to miss with a single remote track. Firefox isn't affected.
+bug is easy to miss with a single remote track. Firefox and WebKit on iPadOS aren't affected.
 
 The script joins three participants to a room, each in its own browser context:
 
@@ -112,8 +112,9 @@ node repro.mjs --listen
 | -- | -- | -- |
 | Chromium 151 (Linux) | keeps playing | stops |
 | Firefox 159 (Linux) | stops | stops |
+| Safari, Chrome and Brave on iPadOS (all WebKit) | stops | stops |
 
-Firefox was checked by ear and by recording its audio output.
+Firefox was checked by ear and by recording its audio output, the iPad by ear.
 
 ## Options
 
@@ -128,7 +129,8 @@ Environment variables:
 - `SCENARIOS` runs only some of them, for example `SCENARIOS=other-audio-playing`.
 - `HEADED=1` opens visible windows with sound, so you can hear the 440 Hz tone keep playing after
   the sandbox audio stops being rendered.
-- `LISTEN_PAGE` adds a link to a hosted copy of listen.html to the `--listen` output.
+- `LISTEN_PAGE` adds a link to a hosted copy of listen.html to the `--listen` output, with a QR
+  code to open it on a phone or a tablet.
 
 ## Related
 

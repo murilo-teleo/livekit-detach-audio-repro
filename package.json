@@ -9,6 +9,7 @@
 	"dependencies": {
 		"livekit-client": "2.23.0",
 		"livekit-server-sdk": "2.19.1",
-		"playwright": "1.62.1"
+		"playwright": "1.62.1",
+		"qrcode": "1.5.4"
 	}
 }

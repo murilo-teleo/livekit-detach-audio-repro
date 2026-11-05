@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { AccessToken } from 'livekit-server-sdk';
 import { chromium } from 'playwright';
+import QRCode from 'qrcode';
 
 const url = process.env.LIVEKIT_URL ?? 'ws://127.0.0.1:7880';
 const apiKey = process.env.LIVEKIT_API_KEY ?? 'devkey';
@@ -203,6 +204,14 @@ const publishForListener = async () => {
 		if (!url.startsWith('wss:') && !url.startsWith('https:')) {
 			console.log('  An https page can only connect to a wss:// server, such as LiveKit Cloud.\n');
 		}
+		console.log('  Or scan the hosted link with a phone or tablet camera:\n');
+		console.log(
+			await QRCode.toString(`${listenPage}#${hash}`, {
+				type: 'terminal',
+				small: true,
+				errorCorrectionLevel: 'L',
+			}),
+		);
 	}
 	console.log('Press Ctrl+C to stop publishing.');
 	await new Promise((resolve) => {
