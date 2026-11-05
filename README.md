@@ -112,7 +112,7 @@ node repro.mjs --listen
 | -- | -- | -- |
 | Chromium 151 (Linux) | keeps playing | stops |
 | Firefox 159 (Linux) | stops | stops |
-| Safari, Chrome and Brave on iPadOS (all WebKit) | stops | stops |
+| Safari, Chrome and Brave on iPadOS 26 (all WebKit) | stops | stops |
 
 Firefox was checked by ear and by recording its audio output, the iPad by ear.
 
