@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Detached audio test</title>
+	<style>
+		:root {
+			color-scheme: light dark;
+		}
+		body {
+			font: 17px/1.5 system-ui, -apple-system, sans-serif;
+			max-width: 40rem;
+			margin: 0 auto;
+			padding: 1rem;
+		}
+		h1 {
+			font-size: 1.4rem;
+		}
+		ol {
+			padding-left: 1.5rem;
+		}
+		li {
+			margin-bottom: 1rem;
+		}
+		button {
+			display: block;
+			width: 100%;
+			margin-bottom: 0.25rem;
+			padding: 0.7rem 1rem;
+			font: inherit;
+			text-align: left;
+		}
+		#browser,
+		#log {
+			font: 13px/1.4 ui-monospace, monospace;
+			overflow-wrap: anywhere;
+		}
+		#log {
+			white-space: pre-wrap;
+		}
+	</style>
+	<!-- Pinned to the release the repro tests, so this page works without a build or a server. -->
+	<script
+		src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.js"
+		integrity="sha384-HkA7rQNo8H04l1p4zoXX1Cy+h9YoYp8LvKt4vfMFhv4KFk07UkrNwIUnyBum8Pw6"
+		crossorigin="anonymous"
+	></script>
+	<!-- Like <RoomAudioRenderer>, which renders its <audio> elements into a hidden div:
+	     https://github.com/livekit/components-js/blob/9cfeb0c492669401242ebcd7828a7dc832b1ae59/packages/react/src/components/RoomAudioRenderer.tsx#L46-L54 -->
+	<div id="audio-renderer" style="display: none"></div>
+	<script src="participant.js"></script>
+
+	<h1>Detached audio test</h1>
+	<p>
+		Two participants are publishing a tone: <b>sandbox</b> a low tone that beeps, and <b>client</b> a
+		steady high tone. This page plays both with the same calls as components-react's
+		<code>&lt;AudioTrack&gt;</code>, then stops playing the beeping one.
+	</p>
+	<p id="browser"></p>
+	<p>Status: <span id="status">connecting…</span></p>
+	<ol>
+		<li>
+			<button id="start" disabled>Start</button>
+			You should hear the low beeping and the steady high tone.
+		</li>
+		<li>
+			<button id="stop-detach" disabled>Stop the beeping with livekit's detach()</button>
+			Listen for a few seconds: <b>does the beeping keep going?</b> In Chrome it does.
+		</li>
+		<li>
+			<button id="replay" disabled>Play the beeping again</button>
+		</li>
+		<li>
+			<button id="stop-cleared" disabled>Stop the beeping with srcObject cleared first</button>
+			This is the proposed fix: the beeping should stop.
+		</li>
+	</ol>
+	<p>Report the browser and whether the beeping kept going in step 2.</p>
+	<div id="log"></div>
+
+	<script type="module">
+		const params = new URLSearchParams(location.hash.slice(1));
+		const buttons = {
+			start: document.getElementById('start'),
+			stopDetach: document.getElementById('stop-detach'),
+			replay: document.getElementById('replay'),
+			stopCleared: document.getElementById('stop-cleared'),
+		};
+		const enable = (...names) => {
+			for (const [name, button] of Object.entries(buttons)) {
+				button.disabled = !names.includes(name);
+			}
+		};
+		const setStatus = (text) => {
+			document.getElementById('status').textContent = text;
+		};
+		const log = (text) => {
+			document.getElementById('log').textContent += `${new Date().toLocaleTimeString()} ${text}\n`;
+		};
+
+		document.getElementById('browser').textContent =
+			`${navigator.userAgent} · livekit-client ${LivekitClient.version}`;
+
+		// The buttons call render and stopRendering synchronously, so the click is the user gesture
+		// that lets the <audio> element play, including on iOS.
+		buttons.start.onclick = () => {
+			render('sandbox');
+			render('client');
+			log('playing the beeping and the steady tone');
+			enable('stopDetach', 'stopCleared');
+		};
+		buttons.stopDetach.onclick = () => {
+			stopRendering('sandbox');
+			log("stopped the beeping with livekit's detach(): does it keep going?");
+			enable('replay');
+		};
+		buttons.replay.onclick = () => {
+			render('sandbox');
+			log('playing the beeping again');
+			enable('stopDetach', 'stopCleared');
+		};
+		buttons.stopCleared.onclick = () => {
+			stopRendering('sandbox', { clearSrcObjectFirst: true });
+			log('stopped the beeping with srcObject cleared first: it should stop');
+			enable('replay');
+		};
+
+		if (!params.get('url') || !params.get('token')) {
+			setStatus('no server in the link: open the link that `node repro.mjs --listen` prints');
+		} else {
+			try {
+				await join({ url: params.get('url'), token: params.get('token'), autoSubscribe: true });
+				room.on(LivekitClient.RoomEvent.Disconnected, (reason) => {
+					setStatus(`disconnected (${LivekitClient.DisconnectReason[reason] ?? reason})`);
+					enable();
+				});
+				setStatus('waiting for the two tones');
+				while (!hasAudioTrack('sandbox') || !hasAudioTrack('client')) {
+					await new Promise((resolve) => setTimeout(resolve, 200));
+				}
+				setStatus('ready');
+				enable('start');
+			} catch (error) {
+				setStatus(`could not connect: ${error.message}`);
+			}
+		}
+	</script>
+</html>

@@ -3,7 +3,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"repro": "node repro.mjs"
+		"repro": "node repro.mjs",
+		"listen": "node repro.mjs --listen"
 	},
 	"dependencies": {
 		"livekit-client": "2.23.0",

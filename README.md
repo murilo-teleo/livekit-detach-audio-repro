@@ -1,13 +1,14 @@
 # Detached remote audio keeps playing in Chrome
 
 Reproduction for [livekit/client-sdk-js#620](https://github.com/livekit/client-sdk-js/issues/620).
+Fix proposed in [livekit/client-sdk-js#2234](https://github.com/livekit/client-sdk-js/pull/2234).
 
 In Chrome, a remote audio track keeps playing after `track.detach(element)` while another remote
 audio element in the page is still playing. `detachTrack` removes the track from the element's
 `MediaStream` and only then sets `srcObject` to `null`. When an element stops, Chrome silences only
 the tracks still in its stream, so the removed track keeps its playout volume and plays whatever
 packets arrive. With no other remote audio playing, Chrome stops playout altogether, which is why the
-bug is easy to miss with a single remote track.
+bug is easy to miss with a single remote track. Firefox isn't affected.
 
 The script joins three participants to a room, each in its own browser context:
 
@@ -21,12 +22,13 @@ The script joins three participants to a room, each in its own browser context:
 The listener then stops rendering the sandbox audio, again with the same calls as an `<AudioTrack>`
 unmount: it removes the `<audio>` element from the DOM and calls `track.detach(element)`. The
 listener stays subscribed and the sandbox keeps publishing, as when an app hides a screen share or a
-shared activity.
+shared activity. These calls are in [participant.js](participant.js).
 
 To tell whether the track is still played out, the script reads the listener's `inbound-rtp` stats
 for it. Chrome measures `totalAudioEnergy` after the receiver's output gain, which follows the
 `<audio>` elements playing the track, and `totalSamplesDuration` counts the samples pulled for
-playout.
+playout. Firefox measures them before playout, so they keep growing after a detach either way: this
+check only works in Chrome. To test another browser, [listen](#test-any-browser-by-ear).
 
 | Scenario | What it does | Chromium 151 |
 | -- | -- | -- |
@@ -36,8 +38,21 @@ playout.
 
 ## Run
 
+Start a local LiveKit server. On Linux:
+
 ```bash
 docker run --rm --network host livekit/livekit-server --dev --bind 127.0.0.1
+```
+
+With Docker Desktop (macOS, Windows), map the ports instead:
+
+```bash
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+```
+
+Then:
+
+```bash
 npm install
 npx playwright install chromium
 node repro.mjs
@@ -64,15 +79,56 @@ srcObject-cleared-first: same as other-audio-playing, with srcObject cleared bef
   => the sandbox audio stopped
 ```
 
-Options, as environment variables:
+## Test any browser by ear
+
+```bash
+node repro.mjs --listen
+```
+
+This publishes the tones from headless Chromium, the sandbox's one beeping on and off, and prints a
+link to [listen.html](listen.html) with a token that can only subscribe in that room for 2 hours.
+Open the link in the browser to test, one browser at a time, and follow the steps on the page:
+
+1. **Start** plays the low beeping and the steady high tone.
+2. **Stop the beeping with livekit's detach()**: in Chrome the beeping keeps going. In an unaffected
+   browser it stops.
+3. **Play the beeping again**.
+4. **Stop the beeping with srcObject cleared first** (the proposed fix): the beeping stops.
+
+The page plays and stops the tones with the same calls as the script, from `participant.js`, and
+loads livekit-client 2.23.0 from jsDelivr.
+
+The link printed for "this computer" is served from `127.0.0.1`. To test on a phone or a tablet,
+use the hosted copy of the page and a LiveKit server it can reach over `wss://`, such as a
+[LiveKit Cloud](https://cloud.livekit.io) project:
+
+```bash
+LISTEN_PAGE=https://murilo-teleo.github.io/livekit-detach-audio-repro/listen.html \
+LIVEKIT_URL=wss://<project>.livekit.cloud LIVEKIT_API_KEY=<key> LIVEKIT_API_SECRET=<secret> \
+node repro.mjs --listen
+```
+
+| Browser | livekit's detach() | srcObject cleared first |
+| -- | -- | -- |
+| Chromium 151 (Linux) | keeps playing | stops |
+| Firefox 159 (Linux) | stops | stops |
+
+Firefox was checked by ear and by recording its audio output.
+
+## Options
+
+Environment variables:
 
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` point it at another server (defaults:
   `ws://127.0.0.1:7880`, `devkey`, `secret`).
-- `LK_CLIENT_UMD` loads another build of livekit-client, such as a local `client-sdk-js` with the fix:
-  `LK_CLIENT_UMD=../client-sdk-js/dist/livekit-client.umd.js node repro.mjs`.
+- `LK_CLIENT_UMD` loads another build of livekit-client in the script's participants, such as a
+  local `client-sdk-js` with the fix:
+  `LK_CLIENT_UMD=../client-sdk-js/dist/livekit-client.umd.js node repro.mjs`. listen.html always
+  loads 2.23.0.
 - `SCENARIOS` runs only some of them, for example `SCENARIOS=other-audio-playing`.
 - `HEADED=1` opens visible windows with sound, so you can hear the 440 Hz tone keep playing after
   the sandbox audio stops being rendered.
+- `LISTEN_PAGE` adds a link to a hosted copy of listen.html to the `--listen` output.
 
 ## Related
 

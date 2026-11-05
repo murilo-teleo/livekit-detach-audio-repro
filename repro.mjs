@@ -9,7 +9,10 @@ import { chromium } from 'playwright';
 const url = process.env.LIVEKIT_URL ?? 'ws://127.0.0.1:7880';
 const apiKey = process.env.LIVEKIT_API_KEY ?? 'devkey';
 const apiSecret = process.env.LIVEKIT_API_SECRET ?? 'secret';
-const headed = process.env.HEADED === '1';
+// --listen publishes the tones and prints a link to listen.html, to test any browser by ear.
+const listenMode = process.argv.includes('--listen');
+const listenPage = process.env.LISTEN_PAGE;
+const headed = process.env.HEADED === '1' && !listenMode;
 // livekit-client's "require" entry is its UMD bundle.
 const clientUmd = process.env.LK_CLIENT_UMD ?? createRequire(import.meta.url).resolve('livekit-client');
 const listenMs = headed ? 8000 : 5000;
@@ -35,14 +38,21 @@ const scenarios = {
 };
 const selected = process.env.SCENARIOS?.split(',') ?? Object.keys(scenarios);
 
+const files = {
+	'/': ['index.html', 'text/html'],
+	'/index.html': ['index.html', 'text/html'],
+	'/listen.html': ['listen.html', 'text/html'],
+	'/participant.js': ['participant.js', 'text/javascript'],
+};
 const server = createServer(async (req, res) => {
 	const path = new URL(req.url, 'http://localhost').pathname;
-	if (path === '/') {
-		res.setHeader('content-type', 'text/html');
-		res.end(await readFile(new URL('./index.html', import.meta.url)));
-	} else if (path === '/livekit-client.umd.js') {
+	if (path === '/livekit-client.umd.js') {
 		res.setHeader('content-type', 'text/javascript');
 		res.end(await readFile(clientUmd));
+	} else if (files[path]) {
+		const [file, contentType] = files[path];
+		res.setHeader('content-type', contentType);
+		res.end(await readFile(new URL(`./${file}`, import.meta.url)));
 	} else {
 		res.statusCode = 404;
 		res.end();
@@ -56,9 +66,9 @@ const browser = await chromium.launch({
 	args: ['--autoplay-policy=no-user-gesture-required', ...(headed ? [] : ['--mute-audio'])],
 });
 
-const createToken = (room, identity) => {
-	const token = new AccessToken(apiKey, apiSecret, { identity });
-	token.addGrant({ roomJoin: true, room });
+const createToken = (room, identity, { ttl, ...grant } = {}) => {
+	const token = new AccessToken(apiKey, apiSecret, { identity, ttl });
+	token.addGrant({ roomJoin: true, room, ...grant });
 	return token.toJwt();
 };
 
@@ -146,9 +156,9 @@ const run = async (name) => {
 const format = (label, { level, packets, pulledSeconds }) =>
 	`  ${label.padEnd(29)} level ${level.toFixed(3)}, ${packets} packets, ${pulledSeconds.toFixed(1)} s pulled for playout`;
 
-console.log(`livekit-client from ${clientUmd}`);
-console.log(`LiveKit server ${url}\n`);
-try {
+const runScenarios = async () => {
+	console.log(`livekit-client from ${clientUmd}`);
+	console.log(`LiveKit server ${url}\n`);
 	for (const name of selected) {
 		const { rendered, stopped } = await run(name);
 		console.log(`${name}: ${scenarios[name].description}`);
@@ -165,6 +175,44 @@ try {
 			console.log('  => the sandbox audio stopped\n');
 		}
 	}
+};
+
+// Publishes the two tones until Ctrl+C, for a listener that a person opens in any browser.
+const publishForListener = async () => {
+	const room = `detach-audio-${randomUUID().slice(0, 8)}`;
+	const sandbox = await join(room, 'sandbox', { autoSubscribe: false });
+	await sandbox.evaluate(() => window.publishTone({ frequency: 440, name: 'sandbox', beep: true }));
+	const client = await join(room, 'client', { autoSubscribe: false });
+	await client.evaluate(() => window.publishTone({ frequency: 660, name: 'client' }));
+
+	// The link can only subscribe in this room, and every browser that opens it joins as the
+	// same "listener", so a new one disconnects the previous one.
+	const token = await createToken(room, 'listener', {
+		ttl: '2h',
+		canPublish: false,
+		canPublishData: false,
+	});
+	const hash = new URLSearchParams({ url, token }).toString();
+	console.log(`Publishing in room ${room} on ${url}:`);
+	console.log('  sandbox: a beeping 440 Hz tone');
+	console.log('  client:  a steady 660 Hz tone\n');
+	console.log('Open the listening page, in one browser at a time. Its link expires in 2 hours.\n');
+	console.log(`  On this computer: ${pageUrl}listen.html#${hash}\n`);
+	if (listenPage) {
+		console.log(`  Hosted:           ${listenPage}#${hash}\n`);
+		if (!url.startsWith('wss:') && !url.startsWith('https:')) {
+			console.log('  An https page can only connect to a wss:// server, such as LiveKit Cloud.\n');
+		}
+	}
+	console.log('Press Ctrl+C to stop publishing.');
+	await new Promise((resolve) => {
+		process.once('SIGINT', resolve);
+		process.once('SIGTERM', resolve);
+	});
+};
+
+try {
+	await (listenMode ? publishForListener() : runScenarios());
 } finally {
 	await browser.close();
 	server.close();
